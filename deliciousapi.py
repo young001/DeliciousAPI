@@ -5,7 +5,6 @@
 
     * retrieving a URL's full public bookmarking history including
         * users who bookmarked the URL including tags used for such bookmarks
-          and the creation time of the bookmark (up to YYYY-MM-DD granularity)
         * top tags (up to a maximum of 10) including tag count
         * title as stored on Delicious.com
         * total number of bookmarks/users for this URL at Delicious.com
@@ -60,16 +59,14 @@ import re
 import socket
 import time
 import urllib2
+import urllib
 
 try:
-    from BeautifulSoup import BeautifulSoup
+    from lxml import etree 
 except:
-    print "ERROR: could not import BeautifulSoup Python module"
+    print "ERROR: could not import lxml module"
     print
-    print "You can download BeautifulSoup from the Python Cheese Shop at"
-    print "http://cheeseshop.python.org/pypi/BeautifulSoup/"
-    print "or directly from http://www.crummy.com/software/BeautifulSoup/"
-    print
+    print"You can install lxml via pip install lxml" 
     raise
 
 try:
@@ -89,15 +86,14 @@ class DeliciousUser(object):
 
     Variables:
         bookmarks:
-            A list of (url, tags, title, comment, timestamp) tuples representing
+            A list of (url, tags, title, comment) tuples representing
             a user's bookmark collection.
 
             url is a 'unicode'
             tags is a 'list' of 'unicode' ([] if no tags)
             title is a 'unicode'
             comment is a 'unicode' (u"" if no comment)
-            timestamp is a 'datetime.datetime'
-
+            
         tags (read-only property):
             A list of (tag, tag_count) tuples, aggregated over all a user's
             retrieved bookmarks. The tags represent a user's tagging vocabulary.
@@ -115,7 +111,7 @@ class DeliciousUser(object):
     def __str__(self):
         total_tag_count = 0
         total_tags = set()
-        for url, tags, title, comment, timestamp in self.bookmarks:
+        for url, tags, title, comment in self.bookmarks:
             if tags:
                 total_tag_count += len(tags)
             for tag in tags:
@@ -136,7 +132,7 @@ class DeliciousUser(object):
 
         """
         total_tags = {}
-        for url, tags, title, comment, timestamp in self.bookmarks:
+        for url, tags, title, comment in self.bookmarks:
             for tag in tags:
                 total_tags[tag] = total_tags.get(tag, 0) + 1
         return total_tags
@@ -206,7 +202,7 @@ class DeliciousURL(object):
     def __str__(self):
         total_tag_count = 0
         total_tags = set()
-        for user, tags, comment, timestamp in self.bookmarks:
+        for user, tags, comment in self.bookmarks:
             if tags:
                 total_tag_count += len(tags)
             for tag in tags:
@@ -230,7 +226,7 @@ class DeliciousURL(object):
 
         """
         total_tags = {}
-        for user, tags, comment, timestamp in self.bookmarks:
+        for user, tags, comment in self.bookmarks:
             for tag in tags:
                 total_tags[tag] = total_tags.get(tag, 0) + 1
         return total_tags
@@ -262,8 +258,8 @@ class DeliciousAPI(object):
                     http_proxy="",
                     tries=3,
                     wait_seconds=3,
-                    user_agent="DeliciousAPI/%s (+http://www.michael-noll.com/wiki/Del.icio.us_Python_API)" % __version__,
-                    timeout=30,
+                    user_agent="Mozilla/4.0 (compatible; MSIE 5.5; Windows NT)",
+                    timeout=30
         ):
         """Set up the API module.
 
@@ -426,7 +422,7 @@ class DeliciousAPI(object):
             of url.
 
         """
-        # we must wait at least 1 second between subsequent queries to
+        # we must wait at//ul[@id='bookmarklist']/li least 1 second between subsequent queries to
         # comply with Delicious.com's Terms of Use
         assert sleep_seconds >= 1
 
@@ -594,12 +590,6 @@ class DeliciousAPI(object):
         """
         Returns the bookmarks of url or user, respectively.
 
-        Delicious.com only returns up to 50 bookmarks per URL on its website.
-        This means that we have to do subsequent queries plus parsing if
-        we want to retrieve more than 50. Roughly speaking, the processing
-        time of get_bookmarks() increases linearly with the number of
-        50-bookmarks-chunks; i.e. it will take 10 times longer to retrieve
-        500 bookmarks than 50.
 
         @param url: The URL of the web document to be queried for.
             Cannot be used together with 'username'.
@@ -610,29 +600,8 @@ class DeliciousAPI(object):
         @type username: str
 
         @param max_bookmarks: Optional, default: 50.
-            Maximum number of bookmarks to retrieve. Set to 0 to disable
-            this limitation/the maximum and retrieve all available
-            bookmarks of the given url.
-
-            Bookmarks are sorted so that newer bookmarks are first.
-            Setting max_bookmarks to 50 means that get_bookmarks() will retrieve
-            the 50 most recent bookmarks of the given url.
-
-            In the case of getting bookmarks of a URL (url is set),
-            get_bookmarks() will take *considerably* longer to run
-            for pages with lots of bookmarks when setting max_bookmarks
-            to a high number or when you completely disable the limit.
-            Delicious returns only up to 50 bookmarks per result page,
-            so for example retrieving 250 bookmarks requires 5 HTTP
-            connections and parsing 5 HTML pages plus wait time between
-            queries (to comply with delicious' Terms of Use; see
-            also parameter 'sleep_seconds').
-
-            In the case of getting bookmarks of a user (username is set),
-            the same restrictions as for a URL apply with the exception
-            that we can retrieve up to 100 bookmarks per HTTP query
-            (instead of only up to 50 per HTTP query for a URL).
-        @type max_bookmarks: int
+            this return the `max_bookmarks` bookmarks
+            @type max_bookmarks: int
 
         @param sleep_seconds: Optional, default: 1.
                 Wait the specified number of seconds between subsequent
@@ -643,13 +612,9 @@ class DeliciousAPI(object):
         @type sleep_seconds: int
 
         @return: Returns the bookmarks of url or user, respectively.
-            For urls, it returns a list of (user, tags, comment, timestamp)
+            For urls, it returns a list of (user, tags, comment)
             tuples.
-            For users, it returns a list of (url, tags, title, comment,
-            timestamp) tuples.
-
-            Bookmarks are sorted "descendingly" by creation time, i.e. newer
-            bookmarks come first.
+            For users, it returns a list of (url, tags, title, comment) tuples.
 
         """
         # we must wait at least 1 second between subsequent queries to
@@ -666,7 +631,7 @@ class DeliciousAPI(object):
         # currently, the maximum number of pages is 20. Delicious.com
         # allows to go beyond page 20 via pagination, but page N (for
         # N > 20) will always display the same content as page 20.
-        max_html_pages = 20
+        #max_html_pages = 20  # no more max_html_pages restricted
 
         path = None
         if url:
@@ -680,13 +645,13 @@ class DeliciousAPI(object):
         elif username:
             # path will change later on if there are multiple pages of boomarks
             # for the given username
-            path = "/%s?setcount=%d" % (username, max_html_count)
+            path = "/%s" %username
         else:
             raise Exception('You must specify either url or user.')
 
         page_index = 1
         bookmarks = []
-        while path and page_index <= max_html_pages:
+        while path:
             data = self._query(path)
             path = None
             if data:
@@ -702,16 +667,15 @@ class DeliciousAPI(object):
                 else:
                     # check if there are multiple pages of bookmarks for this
                     # url on Delicious.com
-                    soup = BeautifulSoup(data)
-                    paginations = soup.findAll("div", id="pagination")
+                    tree = etree.HTML(data)
+                    paginations = tree.xpath("//div[@id='pagination']")
+
                     if paginations:
                         # find next path
-                        nexts = paginations[0].findAll("a", attrs={ "class": "pn next" })
+                        nexts = tree.xpath("//div[@id='pagination']/span/following::a[1]/@href")
                         if nexts and (max_bookmarks == 0 or len(bookmarks) < max_bookmarks) and len(bookmarks) > 0:
                             # e.g. /url/2bb293d594a93e77d45c2caaf120e1b1?show=all&page=2
-                            path = nexts[0]['href']
-                            if username:
-                                path += "&setcount=%d" % max_html_count
+                            path = nexts[0]
                             page_index += 1
                             # wait one second between queries to be compliant with
                             # delicious' Terms of Use
@@ -726,7 +690,7 @@ class DeliciousAPI(object):
         """
         Extracts user bookmarks from a URL's history page on Delicious.com.
 
-        The Python library BeautifulSoup is used to parse the HTML page.
+        The Python library lxml is used to parse the HTML page.
 
         @param data: The HTML source of a URL history Web page on Delicious.com.
         @type data: str
@@ -735,58 +699,32 @@ class DeliciousAPI(object):
 
         """
         bookmarks = []
-        soup = BeautifulSoup(data)
+        tree = etree.HTML(data)
+        bookmark_elements = tree.xpath("//ul[@id='bookmarklist']/li")
 
-        bookmark_elements = soup.findAll("div", attrs={"class": re.compile("^bookmark\s*")})
-        timestamp = None
         for bookmark_element in bookmark_elements:
+            if len(bookmark_element.xpath(".//div/*")) != 1:
+                # extract comments
+                comment = u""
+                datas = bookmark_element.xpath(".//div[@class='note']/p/text()")
+                if datas:
+                    comment = datas[0]
 
-            # extract bookmark creation time
-            #
-            # this timestamp has to "persist" until a new timestamp is
-            # found (delicious only provides the creation time data for the
-            # first bookmark in the list of bookmarks for a given day
-            dategroups = bookmark_element.findAll("div", attrs={"class": "dateGroup"})
-            if dategroups:
-                spans = dategroups[0].findAll('span')
-                if spans:
-                    date_str = spans[0].contents[0].strip()
-                    timestamp =  datetime.datetime.strptime(date_str, '%d %b %y')
+                # extract tags
+                user_tags = []
+                taglist = bookmark_element.xpath(".//div[@class='taglist ']/div")
+                if taglist:
+                    for tag in taglist:
+                        tag_content = tag.xpath(".//div[@class='co']/span/text()")[0].encode("utf-8")
+                        user_tags.append(tag_content)
 
-            # extract comments
-            comment = u""
-            datas = bookmark_element.findAll("div", attrs={"class": "data"})
-            if datas:
-                divs = datas[0].findAll("div", attrs={"class": "description"})
-                if divs:
-                    comment = divs[0].contents[0].strip()
+                # extract user information
+                user = u""
+                datas1 = bookmark_element.xpath(".//div[@class='source_info']/a/text()")
+                if datas1:
+                    user = datas1[0]
 
-            # extract tags
-            user_tags = []
-            tagdisplays = bookmark_element.findAll("div", attrs={"class": "tagdisplay"})
-            if tagdisplays:
-                aset  = tagdisplays[0].findAll("a", attrs={"class": "tag noplay"})
-                for a in aset:
-                    tag = a.contents[0]
-                    user_tags.append(tag)
-
-            # extract user information
-            metas = bookmark_element.findAll("div", attrs={"class": "meta"})
-            if metas:
-                links = metas[0].findAll("a", attrs={"class": "user user-tag"})
-                if links:
-                    try:
-                        user = links[0]['href'][1:]
-                    except IndexError:
-                        # WORKAROUND: it seems there is a bug on Delicious.com where
-                        # sometimes a bookmark is shown in a URL history without any
-                        # associated Delicious username (username is empty); this could
-                        # be caused by special characters in the username or other things
-                        #
-                        # this problem of Delicious is very rare, so we just skip such
-                        # entries until they find a fix
-                        pass
-                    bookmarks.append( (user, user_tags, comment, timestamp) )
+                bookmarks.append( (user, user_tags, comment) )
 
         return bookmarks
 
@@ -794,7 +732,7 @@ class DeliciousAPI(object):
         """
         Extracts a user's bookmarks from his user page on Delicious.com.
 
-        The Python library BeautifulSoup is used to parse the HTML page.
+        The Python library lxml is used to parse the HTML page.
 
         @param data: The HTML source of a user page on Delicious.com.
         @type data: str
@@ -803,50 +741,30 @@ class DeliciousAPI(object):
 
         """
         bookmarks = []
-        soup = BeautifulSoup(data)
+        tree = etree.HTML(data)
+        link_lists = tree.xpath("//div[@class='link  False']")
 
-        ul = soup.find("ul", id="bookmarklist")
-        if ul:
-            bookmark_elements = ul.findAll("div", attrs={"class": re.compile("^bookmark\s*")})
-            timestamp = None
-            for bookmark_element in bookmark_elements:
+        for link in link_lists:
+            #extract the link's url
+            url = urllib.unquote(link.xpath(".//a[@class='title']/@href")[0].split('url=')[-1]) 
 
-                # extract bookmark creation time
-                #
-                # this timestamp has to "persist" until a new timestamp is
-                # found (delicious only provides the creation time data for the
-                # first bookmark in the list of bookmarks for a given day
-                dategroups = bookmark_element.findAll("div", attrs={"class": "dateGroup"})
-                if dategroups:
-                    spans = dategroups[0].findAll('span')
-                    if spans:
-                        date_str = spans[0].contents[0].strip()
-                        timestamp =  datetime.datetime.strptime(date_str, '%d %b %y')
+            #extract the link's tag
+            url_tags = []
+            taglist = link.xpath(".//div[@class='tag ']")
+            for tag in taglist:
+                tag_content = tag.xpath(".//div[@class='co']/span/text()")[0]
+                url_tags.append(tag_content)
 
-                # extract url, title and comments
-                url = u""
-                title = u""
-                comment = u""
-                datas = bookmark_element.findAll("div", attrs={"class": "data"})
-                if datas:
-                    links = datas[0].findAll("a", attrs={"class": re.compile("^taggedlink\s*")})
-                    if links and links[0].contents:
-                        title = links[0].contents[0].strip()
-                        url = links[0]['href']
-                    divs = datas[0].findAll("div", attrs={"class": "description"})
-                    if divs:
-                        comment = divs[0].contents[0].strip()
+            #extract the link's title
+            title = link.xpath(".//a[@class='title']/text()")
 
-                # extract tags
-                url_tags = []
-                tagdisplays = bookmark_element.findAll("div", attrs={"class": "tagdisplay"})
-                if tagdisplays:
-                    aset = tagdisplays[0].findAll("a", attrs={"class": "tag noplay"})
-                    for a in aset:
-                        tag = a.contents[0]
-                        url_tags.append(tag)
+            #extract the link's comment
+            comment = u""
+            comment_data = link.xpath(".//div[@class='note']/p/text()")
+            if comment_data:
+                comment = comment_data
 
-                bookmarks.append( (url, url_tags, title, comment, timestamp) )
+            bookmarks.append((url,url_tags,title,comment))
 
         return bookmarks
 
@@ -902,17 +820,18 @@ class DeliciousAPI(object):
             path = "/v1/posts/all"
             data = self._query(path, host="api.del.icio.us", use_ssl=True, user=username, password=password)
             if data:
-                soup = BeautifulSoup(data)
-                elements = soup.findAll("post")
+                elements = etree.fromstring(data)
                 for element in elements:
-                    url = element["href"]
-                    title = element["description"] or u""
-                    comment = element["extended"] or u""
-                    tags = []
-                    if element["tag"]:
-                        tags = element["tag"].split()
-                    timestamp = datetime.datetime.strptime(element["time"], "%Y-%m-%dT%H:%M:%SZ")
-                    bookmarks.append( (url, tags, title, comment, timestamp) )
+                    url = element.get("href")
+                    title = element.get("description")
+                    comment = element.get("extended")
+                    tags_content = element.get("tag")
+                    if tags_content:
+                        tags = tags_content.split()
+                    else:
+                        tags = []
+                    bookmarks.append((url,tags,title,comment))
+
             user.bookmarks = bookmarks
         else:
             # We have only the username, so we extract data from
@@ -930,7 +849,7 @@ class DeliciousAPI(object):
                     except TypeError:
                         pass
 
-                    url = timestamp = None
+                    url = None
                     title = comment = u""
                     tags = []
 
@@ -947,22 +866,21 @@ class DeliciousAPI(object):
                             pass
                         # tags
                         try:
-                            tags = post['t']
+                            tags_content = post['t']
                         except KeyError:
                             pass
-                        if not tags:
-                            tags = [u"system:unfiled"]
+                        if tags_content:
+                            for tag in tags_content:
+                                tags.append(tag)
+            
                         # comment / notes
                         try:
                             comment = post['n']
                         except KeyError:
                             pass
                         # bookmark creation time
-                        try:
-                            timestamp = datetime.datetime.strptime(post['dt'], "%Y-%m-%dT%H:%M:%SZ")
-                        except KeyError:
-                            pass
-                        bookmarks.append( (url, tags, title, comment, timestamp) )
+                       
+                        bookmarks.append( (url, tags, title, comment) )
                     user.bookmarks = bookmarks[:max_bookmarks]
             else:
                 # TODO: retrieve the first 100 bookmarks via JSON before
@@ -970,7 +888,7 @@ class DeliciousAPI(object):
                 user.bookmarks = self.get_bookmarks(username=username, max_bookmarks=max_bookmarks, sleep_seconds=sleep_seconds)
         return user
 
-    def get_urls(self, tag=None, popular=True, max_urls=100, sleep_seconds=1):
+    def get_urls(self, tag=None, max_urls=100, sleep_seconds=1):
         """
         Returns the list of recent URLs (of web documents) tagged with a given tag.
 
@@ -991,30 +909,9 @@ class DeliciousAPI(object):
             Delicious.com front page (aka "delicious hotlist").
         @type tag: unicode/str
 
-        @param popular: If true (default), retrieve only popular links (i.e.
-            /popular/<tag>). Otherwise, the most recent links tagged with
-            the given tag will be retrieved (i.e. /tag/<tag>).
-
-            As of January 2009, it seems that Delicious.com modified the list
-            of popular tags to contain only up to a maximum of 15 URLs.
-            This also means that setting max_urls to values larger than 15
-            will not change the results of get_urls().
-            So if you are interested in more URLs, set the "popular" parameter
-            to false.
-
-            Note that if you set popular to False, the returned list of URLs
-            might contain duplicate items. This is due to the way Delicious.com
-            creates its /tag/<tag> Web pages. So if you need a certain
-            number of unique URLs, you have to take care of that in your
-            own code.
-        @type popular: bool
-
-        @param max_urls: Retrieve at most max_urls links. The default is 100,
-            which is the maximum number of links that can be retrieved by
-            parsing the official JSON feeds. The maximum value of max_urls
-            in practice is 2000 (currently). If it is set higher, Delicious
-            will return the same links over and over again, giving lots of
-            duplicate items.
+        @param max_urls: return the maximum number urls,0 will return all the 
+        urls by the tag given,if max_urls set,it will return maximum number urls,
+        default is 100.
         @type max_urls: int
 
         @param sleep_seconds: Optional, default: 1.
@@ -1036,10 +933,7 @@ class DeliciousAPI(object):
             max_json_count = 100
             if tag:
                 # tag-specific JSON feed
-                if popular:
-                    path = "/v2/json/popular/%s?count=%d" % (tag, max_json_count)
-                else:
-                    path = "/v2/json/tag/%s?count=%d" % (tag, max_json_count)
+                path = "/v2/json/%s?count=%d" % (tag, max_json_count)
             else:
                 # Delicious.com hotlist
                 path = "/v2/json/?count=%d" % (max_json_count)
@@ -1062,53 +956,41 @@ class DeliciousAPI(object):
         else:
             # maximum number of urls/posts Delicious.com will display
             # per page on its website
-            max_html_count = 100
-            # maximum number of pages that Delicious.com will display;
-            # currently, the maximum number of pages is 20. Delicious.com
-            # allows to go beyond page 20 via pagination, but page N (for
-            # N > 20) will always display the same content as page 20.
-            max_html_pages = 20
+            max_html_count = 20
+            max_html_pages = max_urls/max_html_count
 
-            if popular:
-                path = "/popular/%s?setcount=%d" % (tag, max_html_count)
-            else:
-                path = "/tag/%s?setcount=%d" % (tag, max_html_count)
-
+          
+            path = "/tag/%s" %tag 
             page_index = 1
             urls = []
-            while path and page_index <= max_html_pages:
+            while path and page_index <= max_html_pages+1:
                 data = self._query(path)
                 path = None
                 if data:
                     # extract urls from current page
-                    soup = BeautifulSoup(data)
-                    links = soup.findAll("a", attrs={"class": re.compile("^taggedlink\s*")})
-                    for link in links:
-                        try:
-                            url = link['href']
-                            if url:
-                                urls.append(url)
-                        except KeyError:
-                            pass
+                    tree = etree.HTML(data)
+                    print "parsing %s page" %page_index
+                    link_lists = tree.xpath("//div[@class='link  None']")
+                    for link in link_lists:
+                        url = link.xpath(".//a[@class='title']/@href")[0].split("url=")[-1]
+                        urls.append(url)
+                    print 'length of urls is ', len(urls)
 
-                    # check if there are more multiple pages of urls
-                    soup = BeautifulSoup(data)
-                    paginations = soup.findAll("div", id="pagination")
+                    paginations = tree.xpath("//div[@id='pagination']")
+
                     if paginations:
                         # find next path
-                        nexts = paginations[0].findAll("a", attrs={ "class": "pn next" })
+                        nexts = tree.xpath("//div[@id='pagination']/span/following::a[1]/@href")
                         if nexts and (max_urls == 0 or len(urls) < max_urls) and len(urls) > 0:
-                            # e.g. /url/2bb293d594a93e77d45c2caaf120e1b1?show=all&page=2
-                            path = nexts[0]['href']
-                            path += "&setcount=%d" % max_html_count
+                            path = '/tag/%s' %tag + nexts[0]
+                            print 'path is', path
                             page_index += 1
-                            # wait between queries to Delicious.com to be
-                            # compliant with its Terms of Use
                             time.sleep(sleep_seconds)
         if max_urls > 0:
             return urls[:max_urls]
         else:
             return urls
+            
 
 
     def get_tags_of_user(self, username):
@@ -1238,11 +1120,9 @@ __all__ = ['DeliciousAPI', 'DeliciousURL', 'DeliciousError', 'DeliciousThrottleE
 
 if __name__ == "__main__":
     d = DeliciousAPI()
-    max_bookmarks = 50
-    url = 'http://www.michael-noll.com/wiki/Del.icio.us_Python_API'
-    print "Retrieving Delicious.com information about url"
-    print "'%s'" % url
+    print "Retrieving Delicious.com information about tag"
     print "Note: This might take some time..."
     print "========================================================="
-    document = d.get_url(url, max_bookmarks=max_bookmarks)
-    print document
+    p =  d.get_urls('video',max_urls=101)
+    print p
+    print len(p)
